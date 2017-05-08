@@ -1,50 +1,40 @@
 (ns athena.lambda
-  (:require [clojure.java.io :as io]
-            [clojure.pprint :refer [pprint]]
-            [clojure.tools.trace :as t]
-            [cheshire.core :as json]
-            [puget.printer :as puget]
-            [orca.core :as orca]
+  (:require [amazonica.aws.s3 :as s3]
             [athena.tools :as tools]
-            [clojure.set :as set]
+            [cheshire.core :as json]
+            [clojure.java.io :as io]
             [clojure.string :as str]
-            [orca.core :as orc]
-            [amazonica.aws.s3 :as s3]
-            [amazonica.aws.lambda :as lambda]
+            [orca.core :as orca]
             [taoensso.timbre :as timbre])
-  (:import (org.apache.orc OrcFile TypeDescription TypeDescription$Category)
-           (java.time LocalDate Instant ZonedDateTime ZoneId)
-           (java.time.temporal ChronoUnit)
-           (java.time.format DateTimeFormatter)
-           (java.io File)
-           (com.amazonaws.services.lambda.runtime RequestStreamHandler)
-           (org.apache.commons.io FilenameUtils)))
+  (:import com.amazonaws.services.lambda.runtime.RequestStreamHandler
+           com.amazonaws.services.s3.AmazonS3URI
+           [java.time Instant ZonedDateTime ZoneId]
+           java.time.format.DateTimeFormatter))
 
 (timbre/refer-timbre)
 
 (timbre/set-level! :warn)
 
-(defn cprint [x]
-  (puget/pprint x {:print-color true}))
-
-(defn hour-floor [^Instant instant]
-  (.truncatedTo instant (ChronoUnit/HOURS)))
-
 (defn basename [path]
   (last (str/split path #"/")))
-
-(def ^:dynamic *aws-auth* {:profile "production"})
 
 (defn download-object
   "Gets the s3 object identified by object-summary and copies the results into the returned tmpfile"
   [obj-summary]
-  (let [{object-key :key :keys [object-content] :as obj} (s3/get-object *aws-auth* obj-summary)
+  (let [{object-key :key :keys [object-content] :as obj} (s3/get-object obj-summary)
         local-file (io/file "/tmp/" (basename object-key))]
     (info "downloading" local-file)
     (io/copy object-content local-file)
     local-file))
 
-(def partition-format (DateTimeFormatter/ofPattern "YYYY-MM-dd-HH"))
+(defn from-millis [x]
+  (ZonedDateTime/ofInstant (Instant/ofEpochMilli x) (ZoneId/of "UTC")))
+
+(defn from-epoch [x]
+  (ZonedDateTime/ofInstant (Instant/ofEpochSecond x) (ZoneId/of "UTC")))
+
+(defn format-instant [x pattern]
+  (.format x (DateTimeFormatter/ofPattern pattern)))
 
 (defn keywordize [variable-name]
   (-> variable-name
@@ -65,18 +55,6 @@
     :else (throw (IllegalArgumentException.
                   "only Symbols may be bound"))))
 
-(comment
-  {:destination-s3-bucket nil
-   :destination-s3-prefix "/"
-   :destination-s3-region "us-east-1"
-   :source-s3-format      "csv|tsv|json"
-   :partition-by          ":foo"
-   :partition-by-format   "timestamp"
-   :partition-key-format  "instant"
-   :partition-key-name    "dt"
-   :orc-schema            "struct<check_in:date,nights:tinyint>"})
-
-
 (defn encode-files
   "Encodes a collection of files as Apache ORC."
   [output-path schema input-paths]
@@ -86,18 +64,49 @@
 
 (defn output-file
   "Constructs a path on /tmp for encoding the ORC file"
-  ([input] (output-file "/tmp" input))
-  ([parent input]
-   (let [input-file  (io/file input)
-         filename    (.getName input-file)
-         filename    (str/replace filename #"\.(gz|bzip2|gzip|snappy|sz)$" "")]
-     (io/file parent (str filename ".orc")))))
+  [parent input]
+  (let [input-file  (io/file input)
+        filename    (.getName input-file)
+        filename    (str/replace filename #"\.(gz|bzip2|gzip|snappy|sz)$" "")]
+    (io/file parent (str filename ".orc"))))
+
+(defn partition-fn [{:keys [partition-by partition-key] :as env-map}]
+  (when-not (or (str/blank? partition-by) (str/blank? partition-key))
+    (let [form (read-string partition-by)]
+      (cond
+        (symbol? form)
+        (keyword form)
+
+        (instance? clojure.lang.IFn form)
+        form
+
+        (and (list? form) (= 'fn (first form)))
+        (eval form)))))
+
+(defn md5 [s]
+  (let [algorithm (java.security.MessageDigest/getInstance "MD5")
+        raw (.digest algorithm (.getBytes s))]
+    (format "%032x" (BigInteger. 1 raw))))
 
 (defn process-file
   "Processes file into one or more output ORC files then uploads to S3."
-  [input {:keys [destination-s3-bucket destination-s3-prefix orc-schema] :as env-map}]
-  (with-delete [output-file (output-file input)]
-    (println output-file)))
+  [input {:keys [destination-s3-bucket destination-s3-prefix partition-key orc-schema] :as env-map}]
+  {:pre [(string? destination-s3-bucket)]}
+  (if-let [f (partition-fn env-map)]
+    (doseq [[partition records] (group-by f (tools/row-parser (tools/input-reader (io/file input))))
+            :let [partition-prefix (str partition-key "=" partition)]]
+      (with-delete [output (output-file (str "/tmp/" partition-prefix) input)]
+        (orca/write-rows output records orc-schema :overwrite? true)
+        (s3/put-object {:bucket-name destination-s3-bucket
+                        :key (str destination-s3-prefix partition-prefix "/" (.getName output))
+                        :file output
+                        :metadata {:user-metadata {:orc-schema-md5 (md5 orc-schema)}}})))
+    (with-delete [output (output-file "/tmp" input)]
+      (encode-files output orc-schema [input])
+      (s3/put-object {:bucket-name destination-s3-bucket
+                      :key (str destination-s3-prefix (.getName output))
+                      :file output
+                      :metadata {:user-metadata {:orc-schema-md5 (md5 orc-schema)}}}))))
 
 (defmacro deflambdafn
   "Create a named class that can be invoked as a AWS Lambda function.  Taken from https://github.com/uswitch/lambada."
@@ -127,19 +136,28 @@
   ([env-variables]
    (->> env-variables
         (into {})
-        (reduce-kv #(assoc %1 (keywordize %2) %3) {}))))
+        (reduce-kv (fn [ret k v] (if (str/blank? v) ret (assoc ret (keywordize k) v))) {}))))
 
 (deflambdafn OrcS3EventNotificationEncoder
   [in out ctx]
   (let [env-map       (env)
         input-objects (json->objects in)]
-    (with-open [output (io/writer out)]
+    (with-open [lambda-output (io/writer out)]
       (doseq [file (map download-object input-objects)]
         (process-file file env-map)
         (.delete file))
-      (json/generate-stream input-objects output))))
+      (json/generate-stream input-objects lambda-output))))
 
-;; (defn -main [& args]
-;;   (->> (encode-files))
-;;   (doseq [file args]
-;;     ))
+(comment
+  (defn -main [& args]
+    (let [env-map (env)]
+      (doseq [url args
+              :let [uri (AmazonS3URI. url)
+                    _ (println (str uri))
+                    file (download-object {:bucket-name (.getBucket uri) :key (.getKey uri)})]]
+        (println file)
+        (process-file file (merge env-map {:destination-s3-prefix "processed/property_results/"
+                                           :destination-s3-bucket (.getBucket uri)
+                                           :partition-by "(fn [x] (athena.lambda/format-instant (athena.lambda/from-millis (:requested_at x)) \"YYYY-MM-dd-HH\"))"
+                                           :partition-key "dt"}))
+        (.delete file)))))
