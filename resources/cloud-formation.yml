@@ -1,0 +1,81 @@
+Description: >-
+  Cloudformation template to provision the ORC Lambda Encoder
+Parameters:
+  LambdaS3Bucket:
+    Description: S3 Bucket where the lambda package is stored
+    Type: String
+  LambdaS3Key:
+    Description: Key of the lambda package.
+    Type: String
+  RecordPartitionFn:
+    Description: Evaled Clojure code to partition
+    Type: String
+  RecordPartitionKey:
+    Description: Partition key
+    Type: String
+  SourceS3Bucket:
+    Description: S3 Bucket where the source events are stored.
+    Type: String
+  SourceS3Prefix:
+    Description: Key prefix associated with the source objects.  Don't include a leading slash.
+    Type: String
+  DestinationS3Bucket:
+    Description: S3 Bucket where the results of the transformation will be stored.
+    Type: String
+  DestinationS3Prefix:
+    Description: Key prefix associated of the encoded objects.  Don't include a leading slash.
+    Type: String
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      RoleName: !Ref AWS::StackName
+      Policies:
+      - PolicyName: lambda
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+          - Effect: Allow
+            Action:
+            - s3:PutObject
+            Resource: !Sub
+              - arn:aws:s3:::${Bucket}/${Prefix}*
+              - { Bucket: !Ref DestinationS3Bucket, Prefix: !Ref DestinationS3Prefix }
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            Resource: !Sub
+              - arn:aws:s3:::${Bucket}/${Prefix}*
+              - { Bucket: !Ref SourceS3Bucket, Prefix: !Ref SourceS3Prefix }
+  EncodingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: athena.lambda.OrcS3EventNotificationEncoder
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: java8
+      Environment:
+        Variables:
+          DESTINATION_S3_PREFIX: !Ref DestinationS3Prefix
+          DESTINATION_S3_BUCKET: !Ref DestinationS3Bucket
+          PARTITION_BY: !Ref RecordPartitionFn
+          PARTITION_KEY: !Ref RecordPartitionKey
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key

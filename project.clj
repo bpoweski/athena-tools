@@ -20,5 +20,7 @@
                                                   com.amazonaws/aws-java-sdk]]
                  [com.amazonaws/aws-java-sdk-s3 "1.11.109"]
                  [com.amazonaws/aws-java-sdk-lambda "1.11.109"]]
-  :profiles {:dev {:resource-paths ["test-resources"]}}
+  :profiles {:dev {:resource-paths ["test-resources"]}
+             :uberjar {:aot :all}}
+  :uberjar-name "athena-tools-standalone.jar"
   :main athena.tools)
