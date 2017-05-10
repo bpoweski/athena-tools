@@ -37,6 +37,12 @@
     :id :coerce-date-strings? :default false]
    [nil "--coerce-timestamp-strings" "Attempt to coerce a timestamp from a string."
     :id :coerce-timestamp-strings? :default false]
+   [nil "--create-table" "Show Athena CREATE TABLE"
+    :id :create-table?]
+   [nil "--table-name TABLE" "Athena table name"
+    :default "table"]
+   [nil "--s3-location LOCATION" "S3 Location"
+    :default "bucket-name"]
    ["-s" "--schema SCHEMA" "ORC schema"]
    ["-h" "--help"]])
 
@@ -97,14 +103,30 @@
        (map #(path->typedef % options))
        (reduce orca/merge-typedef)))
 
+(defn create-table-sql
+  "Generate the CREATE TABLE statement for a given schema"
+  [table-name schema-str location]
+  (let [schema             (TypeDescription/fromString schema-str)
+        location-statement (str/join \newline ["STORED AS ORC" (format "LOCATION '%s'" location)])
+        column-statements  (map #(str "  " (str/join " " %)) (map vector (.getFieldNames schema) (map str (.getChildren schema))))]
+    (str/join
+     \newline
+     (-> [(format "CREATE EXTERNAL TABLE %s (" table-name)]
+         (into (map #(str % ",") (butlast column-statements)))
+         (conj (last column-statements) ")"
+               "ROW FORMAT SERDE 'org.apache.hadoop.hive.ql.io.orc.OrcSerde'"
+               "WITH SERDEPROPERTIES ('serialization.format' = '1')"
+               (format "LOCATION '%s'" location))))))
+
 (defn discover-schema [{:keys [arguments options] :as opts}]
   (let [typedef (discover-typedef opts)]
-    (if (:pretty options)
-      (cprint typedef)
-      (-> typedef
-          orca/typedef->schema
-          str
-          println))))
+    (cond
+      (:pretty options)        (cprint typedef)
+      (:create-table? options) (println (create-table-sql (:table-name options) (str (orca/typedef->schema typedef)) (:s3-location options)))
+      :else                    (-> typedef
+                                   orca/typedef->schema
+                                   str
+                                   println))))
 
 (defn schema [{:keys [options arguments] :as opts}]
   (if-let [schema (:schema options)]
@@ -149,20 +171,6 @@
     (->> arguments
          (map input-reader)
          (transduce (mapcat row-parser) (orca/file-encoder (:output options) schema 1024 {:overwrite? true})))))
-
-;; (defn create-table-sql [table-name schema-str location]
-;;   (let [schema             (TypeDescription/fromString schema-str)
-;;         lines              [(format "CREATE EXTERNAL TABLE %s (%n" table-name)]
-;;         column-statements  (into lines (map #(str/join " " %) (map vector (.getFieldNames schema) (map str (.getChildren schema)))))
-;;         location-statement (str/join \newline ["STORED AS ORC" (format "LOCATION '%s'" location)])]
-;;     (str/join
-;;      \newline
-;;      )
-;;     (format
-;;      "CREATE EXTERNAL TABLE %s (%s) %s"
-;;      table-name
-;;      (str/join ", " column-statements)
-;;      location-statement)))
 
 (defn -main [& args]
   (let [{:keys [options arguments errors summary] :as opts} (cli/parse-opts args cli-options)]

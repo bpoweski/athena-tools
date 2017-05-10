@@ -138,7 +138,7 @@
         (into {})
         (reduce-kv (fn [ret k v] (if (str/blank? v) ret (assoc ret (keywordize k) v))) {}))))
 
-(deflambdafn OrcS3EventNotificationEncoder
+(deflambdafn athena.lambda.OrcS3EventNotificationEncoder
   [in out ctx]
   (let [env-map       (env)
         input-objects (json->objects in)]

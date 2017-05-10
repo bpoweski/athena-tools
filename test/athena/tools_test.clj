@@ -1,6 +1,7 @@
 (ns athena.tools-test
   (:require [clojure.test :refer :all]
             [athena.tools :refer :all]
+            [orca.core :as orc]
             [clojure.java.io :as io]
             [clojure.string :as str])
   (:import (org.apache.orc TypeDescription)))

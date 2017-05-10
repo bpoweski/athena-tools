@@ -7,6 +7,23 @@ Parameters:
   LambdaS3Key:
     Description: Key of the lambda package.
     Type: String
+  LambdaMemorySize:
+    Description: Memory allocated for the ORC encoder.  1152MB has worked well for us in production.
+    Type: Number
+    AllowedValues:
+      - 1024
+      - 1088
+      - 1152
+      - 1216
+      - 1280
+      - 1344
+      - 1408
+      - 1472
+      - 1536
+    Default: 1152
+  OrcSchema:
+    Description: ORC Schema used by the encoder
+    Type: String
   RecordPartitionFn:
     Description: Evaled Clojure code to partition
     Type: String
@@ -19,6 +36,7 @@ Parameters:
   SourceS3Prefix:
     Description: Key prefix associated with the source objects.  Don't include a leading slash.
     Type: String
+    Default: ""
   DestinationS3Bucket:
     Description: S3 Bucket where the results of the transformation will be stored.
     Type: String
@@ -69,13 +87,17 @@ Resources:
     Properties:
       Handler: athena.lambda.OrcS3EventNotificationEncoder
       Role: !GetAtt LambdaExecutionRole.Arn
+      FunctionName: !Ref AWS::StackName
+      MemorySize: !Ref LambdaMemorySize
       Runtime: java8
+      Timeout: 300
       Environment:
         Variables:
           DESTINATION_S3_PREFIX: !Ref DestinationS3Prefix
           DESTINATION_S3_BUCKET: !Ref DestinationS3Bucket
           PARTITION_BY: !Ref RecordPartitionFn
           PARTITION_KEY: !Ref RecordPartitionKey
+          ORC_SCHEMA: !Ref OrcSchema
       Code:
         S3Bucket: !Ref LambdaS3Bucket
         S3Key: !Ref LambdaS3Key
