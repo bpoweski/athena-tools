@@ -25,6 +25,10 @@
     :default false]
    [nil "--discover" "Discover the ORC schema"
     :default false]
+   [nil "--override-struct KEY VALUE"
+    :assoc-fn (fn [m k v]
+                (let [[member value] (str/split v #":" 2)]
+                  (assoc-in m [k (keyword member)] (orca/schema->typedef (TypeDescription/fromString value)))))]
    [nil "--pretty" "Pretty print the discovered typedef."
     :default false]
    [nil "--coerce-decimal-strings" "Attempt to coerce a decimal from a string."
@@ -90,12 +94,16 @@
 (defn path->typedef [path options]
   (println "discovering schema for" path)
   (with-open [rdr (input-reader (io/file path))]
-    (orca/rows->typedef
-     (->> rdr
-          line-seq
-          (take 50)
-          (map parse-line))
-     options)))
+    (try
+      (orca/rows->typedef
+       (->> rdr
+            line-seq
+            (random-sample 0.05)
+            (map parse-line))
+       options)
+      (catch clojure.lang.ExceptionInfo ex
+        (cprint (ex-data ex))
+        (throw ex)))))
 
 (defn discover-typedef [{:keys [arguments options]}]
   {:pre (seq arguments)}
@@ -103,12 +111,20 @@
        (map #(path->typedef % options))
        (reduce orca/merge-typedef)))
 
+(defn escape-schema [field]
+  (str/replace field #"(<|^|,)(_[^:]*)" "$1`$2`"))
+
+(defn escape-field [field]
+  (if (or (str/starts-with? field "_") (re-find #"[\?]" field))
+    (str "`" field"`")
+    field))
+
 (defn create-table-sql
   "Generate the CREATE TABLE statement for a given schema"
   [table-name schema-str location]
   (let [schema             (TypeDescription/fromString schema-str)
         location-statement (str/join \newline ["STORED AS ORC" (format "LOCATION '%s'" location)])
-        column-statements  (map #(str "  " (str/join " " %)) (map vector (.getFieldNames schema) (map str (.getChildren schema))))]
+        column-statements  (map #(str/join "  " %) (map vector (map escape-field (.getFieldNames schema)) (map (comp escape-schema str) (.getChildren schema))))]
     (str/join
      \newline
      (-> [(format "CREATE EXTERNAL TABLE %s (" table-name)]

@@ -12,3 +12,9 @@
   (is (= :gzip (compression-encoding (io/resource "simple.json.gz"))))
   (is (= :bzip2 (compression-encoding (io/resource "simple.json.bz2"))))
   (is (nil? (compression-encoding (io/resource "simple.json")))))
+
+(deftest ecape-schema-test
+  (is (= "`_id`" (escape-field "_id")))
+  (is (= "`_meta`" (escape-field "_meta")))
+  (is (= "`question?`" (escape-field "question?")))
+  (is (= "array<struct<id:long,`_meta`:map<string,string>>>" (escape-schema "array<struct<id:long,_meta:map<string,string>>>"))))
