@@ -179,19 +179,24 @@
     exists?))
 
 (defn encode-files
+  "Encodes a collection of files as Apache ORC."
+  [output-path schema input-paths]
+  (->> input-paths
+       (map (comp input-reader io/file))
+       (transduce (mapcat row-parser) (orca/file-encoder output-path schema 1024 {:overwrite? true}))))
+
+(defn cli-encode-files
   "Encodes ORC per CLI options"
   [{:keys [arguments options] :as opts}]
   {:pre [(string? (:output options))]}
   (let [schema (schema opts)]
     (assert schema "a schema is required")
-    (->> arguments
-         (map input-reader)
-         (transduce (mapcat row-parser) (orca/file-encoder (:output options) schema 1024 {:overwrite? true})))))
+    (encode-files (:output options) schema arguments)))
 
 (defn -main [& args]
   (let [{:keys [options arguments errors summary] :as opts} (cli/parse-opts args cli-options)]
     (cond
       (:help options)     (println (usage summary))
-      (:encode options)   (encode-files opts)
+      (:encode options)   (cli-encode-files opts)
       (:discover options) (discover-schema opts)
       :else               (println (usage summary)))))
