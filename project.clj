@@ -19,7 +19,8 @@
                                                   com.amazonaws/amazon-kinesis-client
                                                   com.amazonaws/aws-java-sdk]]
                  [com.amazonaws/aws-java-sdk-s3 "1.11.109"]
-                 [com.amazonaws/aws-java-sdk-lambda "1.11.109"]]
+                 [com.amazonaws/aws-java-sdk-lambda "1.11.109"]
+                 [com.taoensso/nippy "2.13.0"]]
   :profiles {:dev {:resource-paths ["test-resources"]}
              :uberjar {:aot :all}}
   :jvm-opts ["-Xmx1324m"]

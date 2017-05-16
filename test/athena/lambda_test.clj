@@ -25,6 +25,3 @@
   (is (= :field (partition-fn {:partition-by "field" :partition-key "dt"})))
   (is (= :field (partition-fn {:partition-by ":field" :partition-key "dt"})))
   (is (= 11 ((partition-fn {:partition-by "(fn [x] (+ x 10))" :partition-key "dt"}) 1))))
-
-(deftest partition-key-test
-  (is (= {:dt :requested_at} (partition-key {:partition-by ":requested_at" :partition-key "dt"}))))

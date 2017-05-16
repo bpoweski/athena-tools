@@ -6,7 +6,8 @@
             [clojure.string :as str]
             [clojure.tools.reader.edn :as edn]
             [orca.core :as orca]
-            [taoensso.timbre :as timbre])
+            [taoensso.timbre :as timbre]
+            [taoensso.nippy :as nippy])
   (:import com.amazonaws.services.lambda.runtime.RequestStreamHandler
            com.amazonaws.services.s3.AmazonS3URI
            (org.xerial.snappy SnappyFramedOutputStream)
@@ -35,7 +36,7 @@
 (defn from-epoch [x]
   (ZonedDateTime/ofInstant (Instant/ofEpochSecond x) (ZoneId/of "UTC")))
 
-(defn format-instant [x pattern]
+(defn format-instant [^java.time.ZonedDateTime x ^String pattern]
   (.format x (DateTimeFormatter/ofPattern pattern)))
 
 (defn keywordize [variable-name]
@@ -57,7 +58,7 @@
     :else (throw (IllegalArgumentException.
                   "only Symbols may be bound"))))
 
-(defn output-file
+(defn ^java.io.File output-file
   "Constructs a path on /tmp for encoding the ORC file"
   [parent input]
   (let [input-file  (io/file input)
@@ -67,7 +68,7 @@
 
 (defn md5 [s]
   (let [algorithm (java.security.MessageDigest/getInstance "MD5")
-        raw (.digest algorithm (.getBytes s))]
+        raw (.digest algorithm (.getBytes (str s)))]
     (format "%032x" (BigInteger. 1 raw))))
 
 (defn partition-fn [{:keys [partition-key partition-by]}]
@@ -91,28 +92,36 @@
       ([])
       ([result]
        (let [partitions @file-partitions]
-         (doseq [[k [_ ^java.io.BufferedWriter writer]] partitions]
-           (.close writer))
+         (doseq [[k [_ ^java.io.DataOutputStream data-output]] partitions]
+           (.close data-output))
          (zipmap (keys partitions) (map (comp io/file first) (vals partitions)))))
       ([result x]
-       (let [k      (f x)
-             writer (if-let [[_ ^java.io.BufferedWriter writer] (get @file-partitions k)]
-                      writer
-                      (let [path   (orca/tmp-path)
-                            writer (io/writer (SnappyFramedOutputStream. (io/output-stream path)))]
-                        (info "spooling rows of" k "to" path)
-                        (vswap! file-partitions assoc k [path writer])
-                        writer))]
-         (.write writer (pr-str x))
-         (.newLine writer)
+       (let [k                               (f x)
+             ^java.io.DataOutput data-output (if-let [[_ writer] (get @file-partitions k)]
+                                               writer
+                                               (let [path        (orca/tmp-path)
+                                                     data-output (java.io.DataOutputStream. (SnappyFramedOutputStream. (io/output-stream path)))]
+                                                 (info "spooling rows of" k "to" path)
+                                                 (vswap! file-partitions assoc k [path data-output])
+                                                 data-output))]
+         (nippy/freeze-to-out! data-output x)
          result)))))
 
 (defn spool-reader
   "Returns an clojure.lang.IReduceInit for path of a spooled file."
-  [file]
-  (-> file
-      tools/input-reader
-      tools/reducible-lines))
+  [^java.io.File file]
+  (let [input-stream (java.io.DataInputStream. (tools/compressed-input-stream file))]
+    (reify clojure.lang.IReduceInit
+      (reduce [this f init]
+        (try
+          (loop [state init]
+            (if-let [x (try
+                         (nippy/thaw-from-in! input-stream)
+                         (catch java.io.EOFException ex
+                           (debug "done reading" (.getPath file))))]
+              (recur (f state x))
+              state))
+          (finally (.close input-stream)))))))
 
 (defn process-file
   "Processes file into one or more output ORC files then uploads to S3."
@@ -123,7 +132,7 @@
             :let [partition-prefix (str partition-key "=" partition)]]
       (with-delete [output     (output-file (str "/tmp/" partition-prefix) input)
                     spool-file spool-file]
-        (transduce (map edn/read-string) (orca/file-encoder output orc-schema 1024 {:overwrite? true}) (spool-reader spool-file))
+        (transduce (map identity) (orca/file-encoder output orc-schema 1024 {:overwrite? true}) (spool-reader spool-file))
         (s3/put-object {:bucket-name destination-s3-bucket
                         :key (str destination-s3-prefix partition-prefix "/" (.getName output))
                         :file output
@@ -170,7 +179,7 @@
   (let [env-map       (env)
         input-objects (json->objects in)]
     (with-open [lambda-output (io/writer out)]
-      (doseq [file (map download-object input-objects)]
+      (doseq [^java.io.File file (map download-object input-objects)]
         (process-file file env-map)
         (.delete file))
       (json/generate-stream input-objects lambda-output))))

@@ -80,13 +80,15 @@
       [0xff 0x06 0x00 0x00 0x73 0x4e 0x61 0x50 0x70 0x59] :snappy-framed
       nil)))
 
+(defn compressed-input-stream [file]
+  (condp = (compression-encoding file)
+    :snappy-framed (SnappyFramedInputStream. (io/input-stream file))
+    :gzip          (GzipCompressorInputStream. (io/input-stream file) true)
+    :bzip2         (BZip2CompressorInputStream. (io/input-stream file) true)
+    file))
+
 (defn input-reader [file]
-  (io/reader
-   (condp = (compression-encoding file)
-     :snappy-framed (SnappyFramedInputStream. (io/input-stream file))
-     :gzip          (GzipCompressorInputStream. (io/input-stream file) true)
-     :bzip2         (BZip2CompressorInputStream. (io/input-stream file) true)
-     file)))
+  (io/reader (compressed-input-stream file)))
 
 (defn parse-line [line]
   (json/parse-string line keyword))
