@@ -1,6 +1,6 @@
 (ns athena.tools-test
   (:require [clojure.test :refer :all]
-            [athena.tools :refer :all]
+            [athena.tools :as tools :refer :all]
             [orca.core :as orc]
             [clojure.java.io :as io]
             [clojure.string :as str])
@@ -18,3 +18,6 @@
   (is (= "`_meta`" (escape-field "_meta")))
   (is (= "`question?`" (escape-field "question?")))
   (is (= "array<struct<id:long,`_meta`:map<string,string>>>" (escape-schema "array<struct<id:long,_meta:map<string,string>>>"))))
+
+(deftest parse-opts-test
+  (is (= {:output "out.orc"} (parse-opts ["-o" "out.orc"]))))
