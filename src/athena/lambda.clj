@@ -16,7 +16,9 @@
 
 (timbre/refer-timbre)
 
-(timbre/set-level! :warn)
+(if-let [level (System/getenv "LOG_LEVEL")]
+  (timbre/set-level! (keyword level))
+  (timbre/set-level! :warn))
 
 (defn basename [path]
   (last (str/split path #"/")))
@@ -178,8 +180,11 @@
   [in out ctx]
   (let [env-map       (env)
         input-objects (json->objects in)]
+    (info "/tmp has" (str (float (/ (.getUsableSpace (io/file "/tmp")) 1024 1024)) "mb") "left")
+    (info "/tmp has the following files:")
+    (spy :info (file-seq (io/file "/tmp")))
     (with-open [lambda-output (io/writer out)]
       (doseq [^java.io.File file (map download-object input-objects)]
         (process-file file env-map)
-        (.delete file))
+        (debug "deleting" file (.delete file)))
       (json/generate-stream input-objects lambda-output))))
