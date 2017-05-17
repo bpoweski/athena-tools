@@ -56,7 +56,9 @@
                               (try
                                 (with-delete ~(subvec bindings 2) ~@body)
                                 (finally
-                                  (.delete ~(bindings 0)))))
+                                  (let [file# ~(bindings 0)
+                                        deleted?# (.delete file#)]
+                                    (debug "deleting" file# deleted?#)))))
     :else (throw (IllegalArgumentException.
                   "only Symbols may be bound"))))
 
@@ -130,15 +132,16 @@
   [input {:keys [destination-s3-bucket destination-s3-prefix partition-key orc-schema] :as env-map}]
   {:pre [(string? destination-s3-bucket)]}
   (if-let [f (partition-fn env-map)]
-    (doseq [[partition spool-file] (transduce (mapcat tools/row-parser) (spool-by f) [(tools/input-reader (io/file input))])
-            :let [partition-prefix (str partition-key "=" partition)]]
-      (with-delete [output     (output-file (str "/tmp/" partition-prefix) input)
-                    spool-file spool-file]
-        (transduce (map identity) (orca/file-encoder output orc-schema 1024 {:overwrite? true}) (spool-reader spool-file))
-        (s3/put-object {:bucket-name destination-s3-bucket
-                        :key (str destination-s3-prefix partition-prefix "/" (.getName output))
-                        :file output
-                        :metadata {:user-metadata {:orc-schema-md5 (md5 orc-schema)}}})))
+    (with-open [input-stream (tools/input-reader (io/file input))]
+      (doseq [[partition spool-file] (transduce (mapcat tools/row-parser) (spool-by f) [input-stream])
+              :let [partition-prefix (str partition-key "=" partition)]]
+        (with-delete [output     (output-file (str "/tmp/" partition-prefix) input)
+                      spool-file spool-file]
+          (transduce (map identity) (orca/file-encoder output orc-schema 1024 {:overwrite? true}) (spool-reader spool-file))
+          (s3/put-object {:bucket-name destination-s3-bucket
+                          :key (str destination-s3-prefix partition-prefix "/" (.getName output))
+                          :file output
+                          :metadata {:user-metadata {:orc-schema-md5 (md5 orc-schema)}}}))))
     (with-delete [output (output-file "/tmp" input)]
       (tools/encode-files output orc-schema [input])
       (s3/put-object {:bucket-name destination-s3-bucket
@@ -182,9 +185,14 @@
         input-objects (json->objects in)]
     (info "/tmp has" (str (float (/ (.getUsableSpace (io/file "/tmp")) 1024 1024)) "mb") "left")
     (info "/tmp has the following files:")
-    (spy :info (file-seq (io/file "/tmp")))
+    (doseq [file (file-seq (io/file "/tmp"))]
+      (info (.getAbsolutePath file)))
     (with-open [lambda-output (io/writer out)]
       (doseq [^java.io.File file (map download-object input-objects)]
         (process-file file env-map)
-        (debug "deleting" file (.delete file)))
+        (debug "deleting" file)
+        (.delete file))
+      (doseq [file (filter #(str/ends-with? (.getName %) ".orc.crc") (file-seq (io/file "/tmp")))]
+        (debug "cleaning up CRC file" file)
+        (.delete file))
       (json/generate-stream input-objects lambda-output))))

@@ -24,7 +24,7 @@
   (every? true? (map = x y)))
 
 (defn compression-encoding [in]
-  (let [file (java.io.RandomAccessFile. (io/file in) "r")]
+  (with-open [file (java.io.RandomAccessFile. (io/file in) "r")]
     (condp prefix-equal? (repeatedly 10 #(.readUnsignedByte file))
       [0x42 0x5a]                                         :bzip2
       [0x1f 0x8b]                                         :gzip
@@ -125,9 +125,10 @@
 (defn encode-files
   "Encodes a collection of files as Apache ORC."
   [output-path schema input-paths]
-  (->> input-paths
-       (map (comp input-reader io/file))
-       (transduce (mapcat row-parser) (orca/file-encoder output-path schema 1024 {:overwrite? true}))))
+  (let [inputs (map (comp input-reader io/file) input-paths)]
+    (transduce (mapcat row-parser) (orca/file-encoder output-path schema 1024 {:overwrite? true}) inputs)
+    (doseq [is inputs]
+      (.close is))))
 
 (defn cli-encode-files
   "Encodes ORC per CLI options"
