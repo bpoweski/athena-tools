@@ -26,10 +26,11 @@
 (defn download-object
   "Gets the s3 object identified by object-summary and copies the results into the returned tmpfile"
   [obj-summary]
-  (let [{object-key :key :keys [object-content] :as obj} (s3/get-object obj-summary)
+  (let [{object-key :key :as obj} (s3/get-object obj-summary)
         local-file (io/file "/tmp/" (basename object-key))]
     (info "downloading" local-file)
-    (io/copy object-content local-file)
+    (with-open [is (:object-content obj)]
+      (io/copy is local-file))
     local-file))
 
 (defn from-millis [x]
