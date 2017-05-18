@@ -24,7 +24,8 @@
                  [com.amazonaws/aws-java-sdk-lambda "1.11.109"]
                  [com.taoensso/nippy "2.13.0"]]
   :profiles {:dev {:resource-paths ["test-resources"]}
-             :uberjar {:aot :all}}
+             :uberjar {:aot :all
+                       :resource-paths ["uberjar-resources"]}}
   :jvm-opts ["-Xmx1324m"]
   :uberjar-name "athena-tools-standalone.jar"
   :main athena.tools)
