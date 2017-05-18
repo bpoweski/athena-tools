@@ -19,5 +19,6 @@
   (is (= "`question?`" (escape-field "question?")))
   (is (= "array<struct<id:long,`_meta`:map<string,string>>>" (escape-schema "array<struct<id:long,_meta:map<string,string>>>"))))
 
-(deftest parse-opts-test
-  (is (= {:output "out.orc"} (parse-opts ["-o" "out.orc"]))))
+(deftest parse-args-test
+  (is (nil? (parse-args ["unknown"])))
+  (is (= "encode" (:command (parse-args ["encode" "-o" "out.orc"])))))

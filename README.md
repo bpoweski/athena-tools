@@ -2,10 +2,10 @@
 
 A set of tools to accomplish the following:
 
-* CLI ORC file encoding
-* ORC schema inference
-* Lambda function that will encode S3 objects as Lambda from an S3 notification.
-
+* Creationg of Apache ORC files
+* Inferring a schema from JSON
+* A Lambda function that will encode S3 objects as ORC via S3 notification.
+* Simple Athena SQL execution from the command line
 
 ## ORC Encoding via AWS Lambda
 

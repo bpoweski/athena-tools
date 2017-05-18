@@ -132,7 +132,7 @@
   [input {:keys [destination-s3-bucket destination-s3-prefix partition-key orc-schema] :as env-map}]
   {:pre [(string? destination-s3-bucket)]}
   (if-let [f (partition-fn env-map)]
-    (with-open [input-stream (tools/input-reader (io/file input))]
+    (with-open [input-stream (tools/file-reader input)]
       (doseq [[partition spool-file] (transduce (mapcat tools/row-parser) (spool-by f) [input-stream])
               :let [partition-prefix (str partition-key "=" partition)]]
         (with-delete [output     (output-file (str "/tmp/" partition-prefix) input)

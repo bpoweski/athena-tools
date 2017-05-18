@@ -1,14 +1,13 @@
 (ns athena.tools
   (:require [cheshire.core :as json]
             [puget.printer :as puget]
-            [orca.core :as orca]
             [athena.jdbc :as jdbc]
             [clojure.tools.cli :as cli]
             [clojure.string :as str]
             [clojure.java.io :as io]
             [puget.printer :as puget]
             [clojure.tools.trace :as t]
-            [orca.core :as orc])
+            [orca.core :as orca])
   (:import (org.xerial.snappy SnappyFramedInputStream)
            (org.apache.commons.compress.compressors.bzip2 BZip2CompressorInputStream)
            (org.apache.commons.compress.compressors.gzip GzipCompressorInputStream)
@@ -38,20 +37,19 @@
     :bzip2         (BZip2CompressorInputStream. (io/input-stream file) true)
     file))
 
-(defn input-reader [file]
-  (io/reader (compressed-input-stream file)))
+(defn file-reader [file]
+  (io/reader (compressed-input-stream (io/file file))))
 
 (defn parse-line [line]
   (json/parse-string line keyword))
 
-(defn path->typedef [path options]
-  (println "discovering schema for" path)
-  (with-open [rdr (input-reader (io/file path))]
+(defn path->typedef [path {:keys [sample-probability] :as options}]
+  (with-open [rdr (file-reader (io/file path))]
     (try
       (orca/rows->typedef
        (->> rdr
             line-seq
-            (random-sample 0.05)
+            (random-sample sample-probability)
             (map parse-line))
        options)
       (catch clojure.lang.ExceptionInfo ex
@@ -125,18 +123,10 @@
 (defn encode-files
   "Encodes a collection of files as Apache ORC."
   [output-path schema input-paths]
-  (let [inputs (map (comp input-reader io/file) input-paths)]
+  (let [inputs (map file-reader input-paths)]
     (transduce (mapcat row-parser) (orca/file-encoder output-path schema 1024 {:overwrite? true}) inputs)
     (doseq [is inputs]
       (.close is))))
-
-(defn cli-encode-files
-  "Encodes ORC per CLI options"
-  [{:keys [arguments options] :as opts}]
-  {:pre [(string? (:output options))]}
-  (let [schema (schema opts)]
-    (assert schema "a schema is required")
-    (encode-files (:output options) schema arguments)))
 
 (defmulti subcommand :command)
 
@@ -153,6 +143,9 @@
                   (assoc-in m [k (keyword member)] (orca/schema->typedef (TypeDescription/fromString value)))))]
    [nil "--pretty" "Pretty print the discovered typedef."
     :default false]
+   ["-S" "--sample-probability RATE" "Probability of sampling a given a record."
+    :parse-fn #(Float/parseFloat %)
+    :default 0.05 :validate [#(and (> % 0) (<= % 1.0))]]
    [nil "--coerce-decimal-strings" "Attempt to coerce a decimal from a string."
     :id :coerce-decimal-strings? :default false]
    [nil "--min-decimal-precision PRECISION" "Sets a minimum precision for decimals via schema discovery."
@@ -235,7 +228,9 @@
   (println (create-table-sql (:table-name options) (schema opts) (:s3-location options))))
 
 (defmethod subcommand "encode" [{:keys [options arguments errors summary] :as opts}]
-  (cli-encode-files opts))
+  (let [schema (schema opts)]
+    (assert schema "a schema is required")
+    (encode-files (:output options) schema arguments)))
 
 (defmethod subcommand "sql" [opts]
   (jdbc/sql-command opts))
