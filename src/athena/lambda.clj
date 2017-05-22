@@ -188,12 +188,16 @@
     (info "/tmp has the following files:")
     (doseq [file (file-seq (io/file "/tmp"))]
       (info (.getAbsolutePath file)))
-    (with-open [lambda-output (io/writer out)]
-      (doseq [^java.io.File file (map download-object input-objects)]
-        (process-file file env-map)
-        (debug "deleting" file)
-        (.delete file))
-      (doseq [file (filter #(str/ends-with? (.getName %) ".orc.crc") (file-seq (io/file "/tmp")))]
-        (debug "cleaning up CRC file" file)
-        (.delete file))
-      (json/generate-stream input-objects lambda-output))))
+    (try
+      (with-open [lambda-output (io/writer out)]
+        (doseq [^java.io.File file (map download-object input-objects)]
+          (try
+            (process-file file env-map)
+            (finally
+              (debug "deleting" file)
+              (.delete file))))
+        (json/generate-stream input-objects lambda-output))
+      (finally
+        (doseq [file (filter #(str/ends-with? (.getName %) ".orc.crc") (file-seq (io/file "/tmp")))]
+          (debug "cleaning up CRC file" file)
+          (.delete file))))))
