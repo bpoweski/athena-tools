@@ -180,6 +180,15 @@
         (into {})
         (reduce-kv (fn [ret k v] (if (str/blank? v) ret (assoc ret (keywordize k) v))) {}))))
 
+(defn orc-file? [^java.io.File file]
+  (or (str/ends-with? (.getName file) ".orc.crc")
+      (str/ends-with? (.getName file) ".orc")))
+
+(defn clean-tmp []
+  (doseq [file (filter orc-file? (file-seq (io/file "/tmp")))]
+    (debug "cleaning up ORC file" file)
+    (.delete file)))
+
 (deflambdafn athena.lambda.OrcS3EventNotificationEncoder
   [in out ctx]
   (let [env-map       (env)
@@ -188,6 +197,7 @@
     (info "/tmp has the following files:")
     (doseq [file (file-seq (io/file "/tmp"))]
       (info (.getAbsolutePath file)))
+    (clean-tmp)
     (try
       (with-open [lambda-output (io/writer out)]
         (doseq [^java.io.File file (map download-object input-objects)]
@@ -198,6 +208,4 @@
               (.delete file))))
         (json/generate-stream input-objects lambda-output))
       (finally
-        (doseq [file (filter #(str/ends-with? (.getName %) ".orc.crc") (file-seq (io/file "/tmp")))]
-          (debug "cleaning up CRC file" file)
-          (.delete file))))))
+        (clean-tmp)))))
