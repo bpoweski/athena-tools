@@ -1,7 +1,6 @@
 (ns athena.tools
   (:require [cheshire.core :as json]
             [puget.printer :as puget]
-            [athena.jdbc :as jdbc]
             [clojure.tools.cli :as cli]
             [clojure.string :as str]
             [clojure.java.io :as io]
@@ -231,9 +230,6 @@
   (let [schema (schema opts)]
     (assert schema "a schema is required")
     (encode-files (:output options) schema arguments)))
-
-(defmethod subcommand "sql" [opts]
-  (jdbc/sql-command opts))
 
 (defn -main [& args]
   (cli args))

@@ -26,25 +26,6 @@ Rarely does one want the first instruction of anything to involve creating a Had
 
 FIXME
 
-## Build Prerequisites
-
-Download the jar because the Athena team hates maven.
-
-```bash
-$ aws s3 cp s3://athena-downloads/drivers/AthenaJDBC41-1.0.1.jar .
-```
-
-Install it into your local repo.
-
-```bash
-$ mvn install:install-file \
-  -Dfile=AthenaJDBC41-1.0.1.jar \
-  -DgroupId=com.amazonaws \
-  -DartifactId=athena-jdbc41 \
-  -Dversion=1.0.1 \
-  -Dpackaging=jar
-```
-
 ## License
 
 Copyright © 2017 Ben Poweski
