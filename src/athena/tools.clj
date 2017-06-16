@@ -164,19 +164,6 @@
    [nil "--s3-location LOCATION" "S3 Location"
     :default "s3://bucket-name"]])
 
-(def sql-options
-  [["-h" "--help"]
-   ["-f" "--file PATH" "SQL Script to Execute"
-    :validate [#(.exists (io/file %)) "Must be a valid file"]]
-   [nil "--credential-provider AWS_PROVIDER" "AWS credential provider to use"
-    :default "com.amazonaws.auth.profile.ProfileCredentialsProvider"]
-   ["-a" "--credential-provider-args AWS_PROVIDER_ARGS" "AWS credential provider arguments"]
-   ["-e" "--execute QUERY" "SQL statement to execute"]
-   ["-s" "--schema SCHEMA" "Athena schema"]
-   ["-b" "--bucket BUCKET" "ResultSet S3 bucket"]
-   ["-p" "--prefix PREFIX" "ResultSet S3 bucket prefix"]
-   ["-t" "--table" "Print results as a table"]])
-
 (defn exit [status msg]
   (println msg)
   (System/exit status))
@@ -194,7 +181,6 @@
 
 (def cli-options
   {"schema"            schema-options
-   "sql"               sql-options
    "encode"            encode-options
    "show-create-table" show-create-table-options})
 

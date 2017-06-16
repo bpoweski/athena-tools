@@ -12,7 +12,8 @@
            com.amazonaws.services.s3.AmazonS3URI
            (org.xerial.snappy SnappyFramedOutputStream)
            [java.time Instant ZonedDateTime ZoneId]
-           java.time.format.DateTimeFormatter))
+           java.time.format.DateTimeFormatter)
+  (:gen-class))
 
 (timbre/refer-timbre)
 
@@ -172,6 +173,10 @@
          (map :s3)
          (map #(hash-map :bucket-name (get-in % [:bucket :name]) :key (get-in % [:object :key]))))))
 
+(defn uri->object [^String uri]
+  (let [s3-uri (AmazonS3URI. uri)]
+    (hash-map :bucket-name (.getBucket s3-uri) :key (.getKey s3-uri))))
+
 (defn env
   "Retun the envionment as a keyword map"
   ([] (env (System/getenv)))
@@ -209,3 +214,13 @@
         (json/generate-stream input-objects lambda-output))
       (finally
         (clean-tmp)))))
+
+(defn -main [& args]
+  (let [env-map (env)]
+    (doseq [path args]
+      (let [file  (download-object (uri->object path))]
+        (try
+          (process-file file env-map)
+          (finally
+            (debug "deleting file" file)
+            (.delete file)))))))
