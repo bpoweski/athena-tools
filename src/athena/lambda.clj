@@ -173,10 +173,6 @@
          (map :s3)
          (map #(hash-map :bucket-name (get-in % [:bucket :name]) :key (get-in % [:object :key]))))))
 
-(defn uri->object [^String uri]
-  (let [s3-uri (AmazonS3URI. uri)]
-    (hash-map :bucket-name (.getBucket s3-uri) :key (.getKey s3-uri))))
-
 (defn env
   "Retun the envionment as a keyword map"
   ([] (env (System/getenv)))
@@ -216,11 +212,11 @@
         (clean-tmp)))))
 
 (defn -main [& args]
-  (let [env-map (env)]
-    (doseq [path args]
-      (let [file  (download-object (uri->object path))]
-        (try
-          (process-file file env-map)
-          (finally
-            (debug "deleting file" file)
-            (.delete file)))))))
+  (let [[s3-bucket s3-key] args
+        env-map (env)]
+    (let [file (download-object {:bucket-name s3-bucket :key s3-key})]
+      (try
+        (process-file file env-map)
+        (finally
+          (debug "deleting file" file)
+          (.delete file))))))
